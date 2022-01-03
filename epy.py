@@ -56,6 +56,12 @@ try:
 except ModuleNotFoundError:
     MOBI_SUPPORT = False
 
+try:
+    from hyphen import textwrap2, Hyphenator
+
+    HYPHEN_SUPPORT = True
+except ModuleNotFoundError:
+    HYPHEN_SUPPORT = False
 
 try:
     DEBUG = int(str(os.getenv("DEBUG"))) == 1
@@ -777,6 +783,30 @@ class FictionBook(Ebook):
 
     def cleanup(self) -> None:
         return
+    
+    
+def distribute(amount: int, n_slots: int) -> List[int]:
+    base, extra = divmod(amount, n_slots)
+    return [base + (i < extra) for i in range(n_slots)]
+
+
+def justify_text(text: str, width: int, *, skip_if_n: Optional[int] = None) -> str:
+    if not text or (skip_if_n and width - len(text) > skip_if_n):
+        return text
+    splitted_text = text.split()
+    n_slots = len(splitted_text) - 1
+    if not n_slots:
+        return text
+    len_to_fill = width - sum(map(len, splitted_text))
+    space_dist = distribute(len_to_fill, n_slots)
+    justified = ""
+    for word, spaces in zip(splitted_text[:-1], space_dist):
+        justified += word + " "*spaces
+    return justified + splitted_text[-1]
+
+
+def justify_text_list(text_list: List[str], width: int, *, skip_if_n: Optional[int] = None) -> List[str]:
+    return [justify_text(text, width, skip_if_n=20) for text in text_list]
 
 
 class HTMLtoLines(HTMLParser):
@@ -998,15 +1028,15 @@ class HTMLtoLines(HTMLParser):
                     for j in range(startline, len(text))
                 ]
             elif n in self.idinde:
-                text += ["   " + j for j in textwrap.wrap(i, textwidth - 3)] + [""]
+                text += ["   " + j for j in justify_text_list(textwrap2.wrap(i, textwidth - 3, use_hyphenator=Hyphenator()), textwidth-3)] + [""]
             elif n in self.idbull:
-                tmp = textwrap.wrap(i, textwidth - 3)
+                tmp = justify_text_list(textwrap2.wrap(i, textwidth - 3, use_hyphenator=Hyphenator()), textwidth - 3)
                 text += [" - " + j if j == tmp[0] else "   " + j for j in tmp] + [""]
             elif n in self.idpref:
                 tmp = i.splitlines()
                 wraptmp = []
                 for line in tmp:
-                    wraptmp += [j for j in textwrap.wrap(line, textwidth - 6)]
+                    wraptmp += [j for j in justify_text_list(textwrap2.wrap(line, textwidth - 6, use_hyphenator=Hyphenator()), textwidth-6)]
                 text += ["   " + j for j in wraptmp] + [""]
             elif n in self.idimgs:
                 images[starting_line + len(text)] = self.imgs[n]
@@ -1021,7 +1051,7 @@ class HTMLtoLines(HTMLParser):
                 ]
                 text += [""]
             else:
-                text += textwrap.wrap(i, textwidth) + [""]
+                text += justify_text_list(textwrap2.wrap(i, textwidth, use_hyphenator=Hyphenator()), textwidth) + [""]
 
             # TODO: inline formats for indents
             endline = len(text)  # -1
